@@ -14,6 +14,9 @@
         77,
         73
       ]
+    },
+    {
+      "local_name": "WSBC*"
     }
   ],
   "codeowners": [

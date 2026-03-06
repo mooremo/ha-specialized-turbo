@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from bleak import BleakClient
@@ -163,6 +164,18 @@ class SpecializedTurboConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+# Known Specialized serial number prefixes. Each prefix requires a separate
+# manifest.json bluetooth entry too. Expand this list as new models are reported.
+_SPECIALIZED_SERIAL_RE = re.compile(r"^WSBC\d")
+
+
 def _is_specialized_service_info(info: BluetoothServiceInfoBleak) -> bool:
     """Check if a BluetoothServiceInfoBleak is a Specialized bike."""
-    return bool(is_specialized_advertisement(info.manufacturer_data))
+    return bool(is_specialized_advertisement(info.manufacturer_data)) or _is_specialized_serial_name(info.name)
+
+
+def _is_specialized_serial_name(name: str | None) -> bool:
+    """Check if the device name looks like a Specialized serial number (e.g. WSBC**********)."""
+    if not name:
+        return False
+    return bool(_SPECIALIZED_SERIAL_RE.match(name))

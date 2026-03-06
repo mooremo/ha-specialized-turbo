@@ -99,19 +99,33 @@ class SpecializedTurboCoordinator(ActiveBluetoothDataUpdateCoordinator[None]):
             _LOGGER.info("Specialized Turbo at %s is available again", self._address)
             self._was_unavailable = False
 
-        # Trigger pairing if PIN is provided
-        if self._pin is not None:
-            try:
-                await client.pair(protection_level=2)
-                _LOGGER.info("Paired with PIN")
-            except NotImplementedError:
-                _LOGGER.debug("Backend does not support programmatic pairing")
-            except Exception:
-                _LOGGER.warning("Pairing failed", exc_info=True)
+        # Always attempt BLE pairing/bonding. Some bikes (e.g. Turbo Como) require
+        # bonding before they will send telemetry notifications, and calling pair()
+        # is what causes the bike's display to show its PIN. On already-bonded
+        # devices this is a fast no-op.
+        try:
+            await client.pair(protection_level=2)
+            _LOGGER.info("Paired successfully")
+        except NotImplementedError:
+            _LOGGER.debug("Backend does not support programmatic pairing")
+        except Exception:
+            _LOGGER.warning("Pairing failed — will still attempt to subscribe", exc_info=True)
 
-        # Subscribe to telemetry notifications
-        await client.start_notify(CHAR_NOTIFY, self._notification_handler)
-        _LOGGER.info("Subscribed to telemetry notifications")
+        # Subscribe to telemetry notifications. If this fails (e.g. the bike
+        # rejected the subscription because bonding is still required), clean up
+        # the client so coordinator.connected returns False and the coordinator
+        # retries on the next poll rather than leaving entities stuck as "unknown".
+        try:
+            await client.start_notify(CHAR_NOTIFY, self._notification_handler)
+            _LOGGER.info("Subscribed to telemetry notifications")
+        except Exception:
+            _LOGGER.error("Failed to subscribe to telemetry notifications", exc_info=True)
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            self._client = None
+            raise
 
     def _notification_handler(
         self, sender: BleakGATTCharacteristic, data: bytearray
